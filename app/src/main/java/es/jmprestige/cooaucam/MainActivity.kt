@@ -38,7 +38,7 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
 
     private val camIp = "192.168.1.1"
-    private val version = "0.2"
+    private val version = "0.3"
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var cam: PtpIp
     private var player: ExoPlayer? = null
@@ -102,19 +102,13 @@ class MainActivity : Activity() {
         ))
 
         root.addView(TextView(this).apply {
-            text = "PRUEBAS: pulsa una, mira la camara y apunta que hace"
+            text = "PRUEBA: pulsa A, espera 15 s y vuelve a pulsar A. Luego quita la Wi-Fi de la camara y mira su galeria."
             setTextColor(Color.parseColor("#FFD54F"))
             textSize = 14f
             setPadding(0, dp(8), 0, dp(2))
         })
         root.addView(row(
-            btn("A", "#C62828") { test("A", 0x100E, listOf(0, 0)) },
-            btn("B", "#AD1457") { test("B", 0x9601, emptyList()) },
-            btn("C", "#6A1B9A") { test("C", 0x9602, emptyList()) }
-        ))
-        root.addView(row(
-            btn("D", "#4527A0") { test("D", 0x9601, listOf(1)) },
-            btn("E", "#283593") { test("E", 0x9601, listOf(0)) },
+            btn("A (grabar?)", "#C62828") { testSafe("A", 0x100E, listOf(0, 0)) },
             btn("Archivos", "#37474F") { listFiles() }
         ))
 
@@ -196,8 +190,7 @@ class MainActivity : Activity() {
                 log("Conectado. La camara entiende ${cam.ops.size} ordenes y ${cam.props.size} ajustes")
                 log("Ordenes: " + cam.ops.joinToString(" ") { "%04X".format(it) })
                 refreshStatus()
-                snapshot = readAll()
-                runOnUiThread { startLive() }
+                log("Listo. (El directo NO se abre solo: pulsa Directo si lo quieres ver)")
             } catch (e: Exception) {
                 setStatus("Error al conectar")
                 log("ERROR al conectar: ${e.message}")
@@ -317,6 +310,24 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Envia la orden y NO pregunta nada mas a la camara: solo escucha sus avisos. */
+    private fun testSafe(name: String, code: Int, params: List<Int>) {
+        if (!cam.connected) { log("Primero pulsa Conectar"); return }
+        player?.release(); player = null
+        log("===== PRUEBA $name: orden %04X (modo seguro, no se pregunta nada despues)".format(code))
+        worker.execute {
+            try {
+                val r = cam.op(code, params)
+                log("  Respuesta %04X %s".format(r.code, if (r.code == 0x2001) "(OK)" else ""))
+                log("  Escuchando avisos de la camara... (si llega alguno saldra aqui)")
+            } catch (e: Exception) {
+                log("  ERROR: ${e.message}")
+                log("  La camara no contesta. Quita su Wi-Fi y mira si esta grabando.")
+                cam.close()
+            }
+        }
+    }
+
     private fun listFiles() {
         if (!cam.connected) { log("Primero pulsa Conectar"); return }
         worker.execute {
@@ -342,7 +353,7 @@ class MainActivity : Activity() {
             else -> "aviso propio de la camara"
         }
         log("  AVISO %04X (%s) %s".format(code, name, ps.joinToString(" ") { "%08X".format(it) }))
-        if (code == 0x4006 && ps.isNotEmpty()) {
+        if (false && code == 0x4006 && ps.isNotEmpty()) {
             worker.execute {
                 try {
                     val p = ps[0].toInt()
