@@ -38,7 +38,7 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
 
     private val camIp = "192.168.1.1"
-    private val version = "0.3"
+    private val version = "0.4"
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var cam: PtpIp
     private var player: ExoPlayer? = null
@@ -102,7 +102,7 @@ class MainActivity : Activity() {
         ))
 
         root.addView(TextView(this).apply {
-            text = "PRUEBA: pulsa A, espera 15 s y vuelve a pulsar A. Luego quita la Wi-Fi de la camara y mira su galeria."
+            text = "PRUEBA: Conectar > Directo (espera imagen) > A > 20 s > A"
             setTextColor(Color.parseColor("#FFD54F"))
             textSize = 14f
             setPadding(0, dp(8), 0, dp(2))
@@ -313,7 +313,7 @@ class MainActivity : Activity() {
     /** Envia la orden y NO pregunta nada mas a la camara: solo escucha sus avisos. */
     private fun testSafe(name: String, code: Int, params: List<Int>) {
         if (!cam.connected) { log("Primero pulsa Conectar"); return }
-        player?.release(); player = null
+        log("  (directo: ${if (player?.isPlaying == true) "ABIERTO y viendose" else if (player != null) "abierto pero sin imagen" else "cerrado"})")
         log("===== PRUEBA $name: orden %04X (modo seguro, no se pregunta nada despues)".format(code))
         worker.execute {
             try {
