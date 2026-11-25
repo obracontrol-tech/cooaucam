@@ -191,6 +191,27 @@ class PtpIp(
         return total to free
     }
 
+    /** Lista de archivos de la tarjeta (identificadores). */
+    fun handles(): List<Int> {
+        val d = op(0x1007, listOf(-1, 0, 0)).data
+        if (d.size < 4) return emptyList()
+        val bb = le(d)
+        val n = bb.int
+        return (0 until n).filter { bb.remaining() >= 4 }.map { bb.int }
+    }
+
+    /** Nombre y tamano de un archivo. */
+    fun fileInfo(h: Int): Pair<String, Long> {
+        val d = op(0x1008, listOf(h)).data
+        val bb = le(d)
+        bb.int; bb.short; bb.short
+        val size = bb.int.toLong() and 0xFFFFFFFFL
+        bb.position(52)
+        val n = bb.get().toInt() and 0xFF
+        val name = if (n > 1) String(d, 53, (n - 1) * 2, Charsets.UTF_16LE) else "?"
+        return name to size
+    }
+
     fun close() {
         try { cmdSock?.close() } catch (_: Exception) {}
         try { evtSock?.close() } catch (_: Exception) {}

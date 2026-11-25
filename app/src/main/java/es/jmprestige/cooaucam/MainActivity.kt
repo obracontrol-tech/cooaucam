@@ -38,7 +38,7 @@ import java.util.concurrent.Executors
 class MainActivity : Activity() {
 
     private val camIp = "192.168.1.1"
-    private val version = "0.1"
+    private val version = "0.2"
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var cam: PtpIp
     private var player: ExoPlayer? = null
@@ -65,6 +65,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#101418"))
             setPadding(dp(10), dp(10), dp(10), dp(10))
+            fitsSystemWindows = true
         }
 
         root.addView(TextView(this).apply {
@@ -95,9 +96,9 @@ class MainActivity : Activity() {
         root.addView(frame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         root.addView(row(
-            btn("1. Conectar", "#1565C0") { connect() },
-            btn("2. Directo", "#2E7D32") { startLive() },
-            btn("Poner hora", "#455A64") { setClock() }
+            btn("Conectar", "#1565C0") { connect() },
+            btn("Directo", "#2E7D32") { startLive() },
+            btn("Hora", "#455A64") { setClock() }
         ))
 
         root.addView(TextView(this).apply {
@@ -114,7 +115,7 @@ class MainActivity : Activity() {
         root.addView(row(
             btn("D", "#4527A0") { test("D", 0x9601, listOf(1)) },
             btn("E", "#283593") { test("E", 0x9601, listOf(0)) },
-            btn("Avisos", "#37474F") { checkChanges("Revision manual") }
+            btn("Archivos", "#37474F") { listFiles() }
         ))
 
         logView = TextView(this).apply {
@@ -133,15 +134,16 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
 
         setContentView(root)
-        log("CooauCAM v$version. Conecta el movil a la Wi-Fi CU-SPC05 y pulsa 1. Conectar.")
+        log("CooauCAM v$version. Conecta el movil a la Wi-Fi CU-SPC05 y pulsa Conectar.")
     }
 
     private fun btn(text: String, color: String, onClick: () -> Unit): Button =
         Button(this).apply {
             this.text = text
             setTextColor(Color.WHITE)
-            textSize = 16f
+            textSize = 15f
             isAllCaps = false
+            maxLines = 1
             background = GradientDrawable().apply {
                 setColor(Color.parseColor(color)); cornerRadius = dp(10).toFloat()
             }
@@ -224,7 +226,7 @@ class MainActivity : Activity() {
             playerView.player = p
             p.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    log("Directo: error ${error.errorCodeName}. Pulsa 2. Directo para reintentar.")
+                    log("Directo: error ${error.errorCodeName}. Pulsa Directo para reintentar.")
                 }
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) log("Directo funcionando")
@@ -251,7 +253,7 @@ class MainActivity : Activity() {
     }
 
     private fun checkChanges(title: String) {
-        if (!cam.connected) { log("Primero pulsa 1. Conectar"); return }
+        if (!cam.connected) { log("Primero pulsa Conectar"); return }
         worker.execute {
             try {
                 val now = readAll()
@@ -271,10 +273,12 @@ class MainActivity : Activity() {
     }
 
     private fun test(name: String, code: Int, params: List<Int>) {
-        if (!cam.connected) { log("Primero pulsa 1. Conectar"); return }
-        log("===== PRUEBA $name: orden %04X %s  >>> MIRA LA CAMARA".format(code, params.joinToString(",")))
+        if (!cam.connected) { log("Primero pulsa Conectar"); return }
+        log("===== PRUEBA $name: orden %04X %s".format(code, params.joinToString(",")))
+        setStatus("Probando $name... espera")
         worker.execute {
             try {
+                val before = try { cam.handles().toSet() } catch (e: Exception) { null }
                 val r = cam.op(code, params)
                 val meaning = when (r.code) {
                     0x2001 -> "OK"
@@ -284,14 +288,49 @@ class MainActivity : Activity() {
                     0x201D -> "parametro no valido"
                     else -> "?"
                 }
-                log("  Respuesta %04X (%s) datos: %s".format(r.code, meaning, PtpIp.hex(r.data)))
-                Thread.sleep(2000)
+                log("  Respuesta %04X (%s)".format(r.code, meaning))
+                Thread.sleep(4000)
+                val after = try { cam.handles() } catch (e: Exception) { log("  (la camara no deja leer la tarjeta: puede estar GRABANDO)"); null }
+                if (before != null && after != null) {
+                    val nuevos = after.filter { it !in before }
+                    if (nuevos.isEmpty()) {
+                        log("  RESULTADO $name: ningun archivo nuevo")
+                    } else {
+                        for (h in nuevos) {
+                            val (fn, sz) = cam.fileInfo(h)
+                            val tipo = when {
+                                fn.uppercase().endsWith(".JPG") -> "FOTO"
+                                fn.uppercase().endsWith(".MP4") || fn.uppercase().endsWith(".MOV") -> "VIDEO"
+                                else -> "archivo"
+                            }
+                            log("  RESULTADO $name: $tipo nuevo -> $fn (%.1f MB)".format(sz / 1048576.0))
+                        }
+                    }
+                }
+                refreshStatus()
             } catch (e: Exception) {
-                log("  ERROR: ${e.message}. Reconectando...")
-                try { cam.connect(); log("  Reconectado") } catch (e2: Exception) { log("  No se pudo reconectar: ${e2.message}") }
+                log("  ERROR: ${e.message}")
+                log("  La camara ha dejado de contestar. Si sigue asi, apagala y enciendela y pulsa Conectar.")
+                setStatus("La camara no contesta")
+                cam.close()
             }
         }
-        checkChanges("Prueba $name")
+    }
+
+    private fun listFiles() {
+        if (!cam.connected) { log("Primero pulsa Conectar"); return }
+        worker.execute {
+            try {
+                val hs = cam.handles()
+                log("Archivos en la tarjeta: ${hs.size}")
+                for (h in hs.takeLast(6)) {
+                    val (fn, sz) = cam.fileInfo(h)
+                    log("   $fn  (%.1f MB)".format(sz / 1048576.0))
+                }
+            } catch (e: Exception) {
+                log("No puedo leer la tarjeta: ${e.message}")
+            }
+        }
     }
 
     private fun onCamEvent(code: Int, ps: List<Long>) {
@@ -314,7 +353,7 @@ class MainActivity : Activity() {
     }
 
     private fun setClock() {
-        if (!cam.connected) { log("Primero pulsa 1. Conectar"); return }
+        if (!cam.connected) { log("Primero pulsa Conectar"); return }
         val now = SimpleDateFormat("yyyyMMdd'T'HHmmss'.0'", Locale.US).format(Date())
         worker.execute {
             try {

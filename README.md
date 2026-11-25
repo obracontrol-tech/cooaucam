@@ -19,3 +19,4 @@ Ajustes leídos: 5001 batería, 5011 fecha/hora, D605 resolución vídeo, 5003 t
 
 ## Versiones
 - **0.1** – Conectar, directo, batería/tarjeta, poner hora, botones de prueba A–E para descubrir la orden de grabar/parar.
+- **0.2** – Cada prueba comprueba sola si ha aparecido una foto o vídeo nuevo en la tarjeta; botón Archivos; arreglos de pantalla.
